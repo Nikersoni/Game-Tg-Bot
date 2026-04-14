@@ -6,7 +6,7 @@ import random
 import os
 
 TOKEN = os.getenv("TOKEN") or "8640949306:AAG5n2Af4LHtj8qe5pT1eLZb4oY1pe_NT3c"
-ADMINS = [8200958216]  # <-- ВСТАВЬ СВОЙ ID
+ADMINS = [8200958216]
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS emojis (
 
 conn.commit()
 
-# ===== ЭМОДЗИ (дефолт) =====
+# ===== ДЕФОЛТ ЭМОДЗИ =====
 default_emojis = {
     "profile":"👤","money":"💰","tree":"🌳","fap":"🍆",
     "inv":"🎒","dig":"⛏","bonus":"🎁","top":"🏆",
@@ -49,6 +49,20 @@ default_emojis = {
 for k,v in default_emojis.items():
     cursor.execute("INSERT OR IGNORE INTO emojis VALUES (?, ?, 0)", (k, v))
 conn.commit()
+
+# ===== КЭШ ЭМОДЗИ =====
+emoji_cache = {}
+
+def load_emojis():
+    global emoji_cache
+    cursor.execute("SELECT name, value, is_custom FROM emojis")
+    rows = cursor.fetchall()
+    emoji_cache = {r[0]: (r[1], r[2]) for r in rows}
+
+load_emojis()
+
+def get_emoji(name):
+    return emoji_cache.get(name, ("❓", 0))
 
 # ===== UTILS =====
 def get_user(uid, name):
@@ -84,42 +98,49 @@ def tree_fmt(cm):
 def rand(a,b): return random.randint(a,b)
 def rand_res(): return random.choice(["bank","bone"])
 
-# ===== ЭМОДЗИ СИСТЕМА =====
-def get_emoji(name):
-    cursor.execute("SELECT value, is_custom FROM emojis WHERE name=?", (name,))
-    return cursor.fetchone()
-
+# ===== PREMIUM BUILD =====
 def build_text(text):
     entities = []
-    for key in default_emojis.keys():
-        data = get_emoji(key)
-        if not data: continue
+    result = ""
+    i = 0
 
-        val, is_custom = data
-        tag = "{" + key + "}"
+    while i < len(text):
+        if text[i] == "{":
+            end = text.find("}", i)
+            if end != -1:
+                key = text[i+1:end]
+                val, is_custom = get_emoji(key)
 
-        if tag in text:
-            pos = text.find(tag)
-            if is_custom:
-                text = text.replace(tag, "▫️", 1)
-                entities.append(MessageEntity(
-                    type="custom_emoji",
-                    offset=pos,
-                    length=1,
-                    custom_emoji_id=val
-                ))
-            else:
-                text = text.replace(tag, val, 1)
+                if is_custom:
+                    offset = len(result)
+                    result += "▫️"
+                    entities.append(MessageEntity(
+                        type="custom_emoji",
+                        offset=offset,
+                        length=1,
+                        custom_emoji_id=val
+                    ))
+                else:
+                    result += val
 
-    return text, entities
+                i = end + 1
+                continue
+
+        result += text[i]
+        i += 1
+
+    return result, entities
 
 def send(chat_id, text, kb=None, edit=None):
     text, entities = build_text(text)
 
-    if edit:
-        bot.edit_message_text(text, chat_id, edit, reply_markup=kb, entities=entities)
-    else:
-        bot.send_message(chat_id, text, reply_markup=kb, entities=entities)
+    try:
+        if edit:
+            bot.edit_message_text(text, chat_id, edit, reply_markup=kb, entities=entities)
+        else:
+            bot.send_message(chat_id, text, reply_markup=kb, entities=entities)
+    except:
+        pass
 
 # ===== КНОПКИ =====
 def menu():
@@ -246,14 +267,13 @@ def cb(call):
 
         send(call.message.chat.id,"+15 см",tree_kb(),call.message.message_id)
 
-    # ===== ЭМОДЗИ РЕДАКТОР =====
     elif call.data.startswith("edit_"):
         if call.from_user.id not in ADMINS: return
         key=call.data.split("_")[1]
         waiting[call.from_user.id]=key
         bot.send_message(call.message.chat.id,f"Отправь эмодзи для {key}")
 
-# ===== ПРИЕМ ЭМОДЗИ =====
+# ===== УСТАНОВКА ЭМОДЗИ =====
 @bot.message_handler(func=lambda m: True)
 def set_emoji(m):
     if m.from_user.id not in waiting:
@@ -266,11 +286,13 @@ def set_emoji(m):
             if e.type=="custom_emoji":
                 cursor.execute("UPDATE emojis SET value=?,is_custom=1 WHERE name=?",(e.custom_emoji_id,key))
                 conn.commit()
+                load_emojis()
                 del waiting[m.from_user.id]
                 return bot.send_message(m.chat.id,"✅ Premium обновлен")
 
     cursor.execute("UPDATE emojis SET value=?,is_custom=0 WHERE name=?",(m.text,key))
     conn.commit()
+    load_emojis()
     del waiting[m.from_user.id]
     bot.send_message(m.chat.id,"✅ Обновлено")
 
