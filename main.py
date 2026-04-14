@@ -125,7 +125,7 @@ def top_kb():
     kb = InlineKeyboardMarkup()
     kb.add(InlineKeyboardButton("💰 Монеты", callback_data="tm"),
            InlineKeyboardButton("🌱 Дерево", callback_data="tt"))
-    kb.add(InlineKeyboardButton("🍆 Фап", callback_data="tf"))
+    kb.add(InlineKeyboardButton("🍆 Дрочеры", callback_data="tf"))
     kb.add(InlineKeyboardButton("⬅️ Назад", callback_data="menu"))
     return kb
 
@@ -251,13 +251,13 @@ def cb(call):
 
     elif call.data == "fap_use":
         if u[3] <= 0:
-            return edit(call, "❌ Нет банок", fap_kb())
+            return edit(call, "❌ Вы не можете подрочить, у вас Нет банок", fap_kb())
 
         add("bank", -1, uid)
         add("fap", 1, uid)
 
         edit(call, f"""
-✅ Вы успешно пофапали
+✅ Вы успешно подрочили
 
 📊 Всего: {u[6]+1}
 🧴 Осталось: {u[3]-1}
