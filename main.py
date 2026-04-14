@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS emojis (
 
 conn.commit()
 
-# ===== ДЕФОЛТ ЭМОДЗИ =====
+# ===== ЭМОДЗИ =====
 default_emojis = {
     "profile":"👤","money":"💰","tree":"🌳","fap":"🍆",
     "inv":"🎒","dig":"⛏","bonus":"🎁","top":"🏆",
@@ -50,14 +50,13 @@ for k,v in default_emojis.items():
     cursor.execute("INSERT OR IGNORE INTO emojis VALUES (?, ?, 0)", (k, v))
 conn.commit()
 
-# ===== КЭШ ЭМОДЗИ =====
+# ===== КЭШ =====
 emoji_cache = {}
 
 def load_emojis():
     global emoji_cache
     cursor.execute("SELECT name, value, is_custom FROM emojis")
-    rows = cursor.fetchall()
-    emoji_cache = {r[0]: (r[1], r[2]) for r in rows}
+    emoji_cache = {r[0]: (r[1], r[2]) for r in cursor.fetchall()}
 
 load_emojis()
 
@@ -71,8 +70,7 @@ def get_user(uid, name):
     if not u:
         cursor.execute("INSERT INTO users VALUES (?, ?, 500, 5, 5, 0, 0, 0, 0, 0)", (uid, name))
         conn.commit()
-        cursor.execute("SELECT * FROM users WHERE user_id=?", (uid,))
-        u = cursor.fetchone()
+        return get_user(uid, name)
     return u
 
 def add(field, val, uid):
@@ -85,9 +83,7 @@ def update(field, val, uid):
 
 def cooldown(last, cd):
     now = int(time.time())
-    if now - last >= cd:
-        return True, 0
-    return False, cd - (now - last)
+    return (True,0) if now-last>=cd else (False, cd-(now-last))
 
 def fmt(sec):
     return f"{sec//3600}ч {(sec%3600)//60}м"
@@ -98,22 +94,22 @@ def tree_fmt(cm):
 def rand(a,b): return random.randint(a,b)
 def rand_res(): return random.choice(["bank","bone"])
 
-# ===== PREMIUM BUILD =====
+# ===== PREMIUM TEXT =====
 def build_text(text):
-    entities = []
-    result = ""
-    i = 0
+    entities=[]
+    result=""
+    i=0
 
-    while i < len(text):
-        if text[i] == "{":
-            end = text.find("}", i)
-            if end != -1:
-                key = text[i+1:end]
-                val, is_custom = get_emoji(key)
+    while i<len(text):
+        if text[i]=="{":
+            end=text.find("}",i)
+            if end!=-1:
+                key=text[i+1:end]
+                val,is_custom=get_emoji(key)
 
                 if is_custom:
-                    offset = len(result)
-                    result += "▫️"
+                    offset=len(result)
+                    result+="▫️"
                     entities.append(MessageEntity(
                         type="custom_emoji",
                         offset=offset,
@@ -121,30 +117,29 @@ def build_text(text):
                         custom_emoji_id=val
                     ))
                 else:
-                    result += val
+                    result+=val
 
-                i = end + 1
+                i=end+1
                 continue
 
-        result += text[i]
-        i += 1
+        result+=text[i]
+        i+=1
 
-    return result, entities
+    return result,entities
 
-def send(chat_id, text, kb=None, edit=None):
-    text, entities = build_text(text)
-
+def send(chat_id,text,kb=None,edit=None):
+    text,entities=build_text(text)
     try:
         if edit:
-            bot.edit_message_text(text, chat_id, edit, reply_markup=kb, entities=entities)
+            bot.edit_message_text(text,chat_id,edit,reply_markup=kb,entities=entities)
         else:
-            bot.send_message(chat_id, text, reply_markup=kb, entities=entities)
+            bot.send_message(chat_id,text,reply_markup=kb,entities=entities)
     except:
         pass
 
-# ===== КНОПКИ =====
+# ===== КНОПКИ INLINE =====
 def menu():
-    kb = InlineKeyboardMarkup()
+    kb=InlineKeyboardMarkup()
     kb.add(InlineKeyboardButton("Профиль",callback_data="profile"),
            InlineKeyboardButton("Инвентарь",callback_data="inv"))
     kb.add(InlineKeyboardButton("Бонус",callback_data="bonus"),
@@ -152,7 +147,7 @@ def menu():
     return kb
 
 def profile_kb():
-    kb = InlineKeyboardMarkup()
+    kb=InlineKeyboardMarkup()
     kb.add(InlineKeyboardButton("Инвентарь",callback_data="inv"))
     kb.add(InlineKeyboardButton("Дерево",callback_data="tree"))
     kb.add(InlineKeyboardButton("Копать",callback_data="dig"))
@@ -161,59 +156,65 @@ def profile_kb():
     return kb
 
 def tree_kb():
-    kb = InlineKeyboardMarkup()
+    kb=InlineKeyboardMarkup()
     kb.add(InlineKeyboardButton("Полить",callback_data="water"),
            InlineKeyboardButton("Удобрить",callback_data="fert"))
     kb.add(InlineKeyboardButton("Назад",callback_data="profile"))
     return kb
 
 def fap_kb():
-    kb = InlineKeyboardMarkup()
+    kb=InlineKeyboardMarkup()
     kb.add(InlineKeyboardButton("Использовать",callback_data="fap_use"))
     kb.add(InlineKeyboardButton("Назад",callback_data="profile"))
+    return kb
+
+# ===== КЛАВИАТУРА НИЖНЯЯ =====
+def main_kb():
+    kb = ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.row("👤 Профиль","🎒 Инвентарь")
+    kb.row("⛏ Копать","🌳 Дерево")
+    kb.row("🎁 Бонус","🏆 Топ")
     return kb
 
 # ===== START =====
 @bot.message_handler(commands=['start'])
 def start(m):
     get_user(m.from_user.id, m.from_user.first_name)
-    send(m.chat.id, "👋 Привет", menu())
+    send(m.chat.id,"👋 Привет")
+    bot.send_message(m.chat.id,"📱 Панель управления",reply_markup=main_kb())
 
 # ===== АДМИН =====
-waiting = {}
+waiting={}
 
 @bot.message_handler(commands=['admin'])
 def admin(m):
     if m.from_user.id not in ADMINS: return
-    kb = InlineKeyboardMarkup()
+    kb=InlineKeyboardMarkup()
     for k in default_emojis:
-        kb.add(InlineKeyboardButton(k, callback_data=f"edit_{k}"))
-    bot.send_message(m.chat.id, "🎨 Эмодзи", reply_markup=kb)
+        kb.add(InlineKeyboardButton(k,callback_data=f"edit_{k}"))
+    bot.send_message(m.chat.id,"🎨 Эмодзи",reply_markup=kb)
 
 # ===== CALLBACK =====
 @bot.callback_query_handler(func=lambda c: True)
 def cb(call):
-    u = get_user(call.from_user.id, call.from_user.first_name)
-    uid = u[0]
+    u=get_user(call.from_user.id,call.from_user.first_name)
+    uid=u[0]
 
-    if call.data=="menu":
-        send(call.message.chat.id, "Меню", menu(), call.message.message_id)
+    if call.data=="profile":
+        send(call.message.chat.id,f"""
+{{profile}} Профиль
 
-    elif call.data=="profile":
-        send(call.message.chat.id, """
-{profile} Профиль
-
-{money} %s
-{tree} %s
-{fap} %s
-"""%(u[2],tree_fmt(u[5]),u[6]), profile_kb(), call.message.message_id)
+{{money}} {u[2]}
+{{tree}} {tree_fmt(u[5])}
+{{fap}} {u[6]}
+""",profile_kb(),call.message.message_id)
 
     elif call.data=="tree":
-        send(call.message.chat.id, """
-{tree} Дерево
+        send(call.message.chat.id,f"""
+{{tree}} Дерево
 
-Рост: %s
-"""%tree_fmt(u[5]), tree_kb(), call.message.message_id)
+Рост: {tree_fmt(u[5])}
+""",tree_kb(),call.message.message_id)
 
     elif call.data=="dig":
         ok,left=cooldown(u[7],1800)
@@ -221,18 +222,14 @@ def cb(call):
             return send(call.message.chat.id,f"⏳ {fmt(left)}",profile_kb(),call.message.message_id)
 
         coins=rand(12,99)
-        res=rand_res()
-        amt=rand(1,3)
-
         add("balance",coins,uid)
-        add(res,amt,uid)
         update("last_dig",int(time.time()),uid)
 
         send(call.message.chat.id,f"{coins} монет",profile_kb(),call.message.message_id)
 
     elif call.data=="fap":
         send(call.message.chat.id,f"""
-{fap} Фап
+{{fap}} Фап
 
 Всего: {u[6]}
 Банки: {u[3]}
@@ -247,54 +244,65 @@ def cb(call):
 
         send(call.message.chat.id,f"✅ +1\nВсего: {u[6]+1}",fap_kb(),call.message.message_id)
 
-    elif call.data=="water":
-        ok,left=cooldown(u[8],14400)
-        if not ok:
-            return send(call.message.chat.id,fmt(left),tree_kb(),call.message.message_id)
-
-        grow=rand(1,10)
-        add("tree",grow,uid)
-        update("last_water",int(time.time()),uid)
-
-        send(call.message.chat.id,f"+{grow} см",tree_kb(),call.message.message_id)
-
-    elif call.data=="fert":
-        if u[4]<=0:
-            return send(call.message.chat.id,"Нет костей",tree_kb(),call.message.message_id)
-
-        add("bone",-1,uid)
-        add("tree",15,uid)
-
-        send(call.message.chat.id,"+15 см",tree_kb(),call.message.message_id)
-
     elif call.data.startswith("edit_"):
         if call.from_user.id not in ADMINS: return
         key=call.data.split("_")[1]
         waiting[call.from_user.id]=key
         bot.send_message(call.message.chat.id,f"Отправь эмодзи для {key}")
 
-# ===== УСТАНОВКА ЭМОДЗИ =====
+# ===== ТЕКСТ КНОПКИ =====
 @bot.message_handler(func=lambda m: True)
-def set_emoji(m):
-    if m.from_user.id not in waiting:
-        return
+def text_handler(m):
+    if m.from_user.id in waiting:
+        key=waiting[m.from_user.id]
 
-    key=waiting[m.from_user.id]
+        if m.entities:
+            for e in m.entities:
+                if e.type=="custom_emoji":
+                    cursor.execute("UPDATE emojis SET value=?,is_custom=1 WHERE name=?",(e.custom_emoji_id,key))
+                    conn.commit()
+                    load_emojis()
+                    del waiting[m.from_user.id]
+                    return bot.send_message(m.chat.id,"✅ Premium обновлен")
 
-    if m.entities:
-        for e in m.entities:
-            if e.type=="custom_emoji":
-                cursor.execute("UPDATE emojis SET value=?,is_custom=1 WHERE name=?",(e.custom_emoji_id,key))
-                conn.commit()
-                load_emojis()
-                del waiting[m.from_user.id]
-                return bot.send_message(m.chat.id,"✅ Premium обновлен")
+        cursor.execute("UPDATE emojis SET value=?,is_custom=0 WHERE name=?",(m.text,key))
+        conn.commit()
+        load_emojis()
+        del waiting[m.from_user.id]
+        return bot.send_message(m.chat.id,"✅ Обновлено")
 
-    cursor.execute("UPDATE emojis SET value=?,is_custom=0 WHERE name=?",(m.text,key))
-    conn.commit()
-    load_emojis()
-    del waiting[m.from_user.id]
-    bot.send_message(m.chat.id,"✅ Обновлено")
+    text=m.text.lower()
+    u=get_user(m.from_user.id,m.from_user.first_name)
+
+    if "профиль" in text:
+        return send(m.chat.id,"{profile} Профиль",profile_kb())
+
+    elif "дерево" in text:
+        return send(m.chat.id,f"{tree_fmt(u[5])}",tree_kb())
+
+    elif "копать" in text:
+        ok,left=cooldown(u[7],1800)
+        if not ok:
+            return bot.send_message(m.chat.id,fmt(left))
+
+        coins=rand(12,99)
+        add("balance",coins,u[0])
+        update("last_dig",int(time.time()),u[0])
+
+        return bot.send_message(m.chat.id,f"⛏ +{coins}")
+
+    elif "бонус" in text:
+        ok,left=cooldown(u[9],86400)
+        if not ok:
+            return bot.send_message(m.chat.id,fmt(left))
+
+        add("balance",500,u[0])
+        update("last_bonus",int(time.time()),u[0])
+
+        return bot.send_message(m.chat.id,"🎁 +500")
+
+    elif "топ" in text:
+        return bot.send_message(m.chat.id,"🏆 В разработке")
 
 print("Запущен")
 bot.infinity_polling()
