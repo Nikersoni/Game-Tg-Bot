@@ -99,7 +99,7 @@ def profile_kb():
     kb.add(InlineKeyboardButton("🎒 Инвентарь", callback_data="inv"))
     kb.add(InlineKeyboardButton("🌳 Дерево", callback_data="tree"))
     kb.add(InlineKeyboardButton("⛏ Копать", callback_data="dig"))
-    kb.add(InlineKeyboardButton("🍆 Пофапать", callback_data="fap"))
+    kb.add(InlineKeyboardButton("🍆 Подрочить", callback_data="fap"))
     kb.add(InlineKeyboardButton("⬅️ Назад", callback_data="menu"))
     return kb
 
