@@ -1,11 +1,13 @@
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import *
 import sqlite3
 import time
 import random
 import os
 
 TOKEN = os.getenv("TOKEN") or "8640949306:AAG5n2Af4LHtj8qe5pT1eLZb4oY1pe_NT3c"
+ADMINS = [8200958216]  # <-- ВСТАВЬ СВОЙ ID
+
 bot = telebot.TeleBot(TOKEN)
 
 # ===== БД =====
@@ -28,12 +30,24 @@ CREATE TABLE IF NOT EXISTS users (
 """)
 
 cursor.execute("""
-CREATE TABLE IF NOT EXISTS chat_stats (
-    chat_id INTEGER PRIMARY KEY,
-    messages INTEGER
+CREATE TABLE IF NOT EXISTS emojis (
+    name TEXT PRIMARY KEY,
+    value TEXT,
+    is_custom INTEGER
 )
 """)
 
+conn.commit()
+
+# ===== ЭМОДЗИ (дефолт) =====
+default_emojis = {
+    "profile":"👤","money":"💰","tree":"🌳","fap":"🍆",
+    "inv":"🎒","dig":"⛏","bonus":"🎁","top":"🏆",
+    "water":"💧","fert":"🌿","back":"⬅️"
+}
+
+for k,v in default_emojis.items():
+    cursor.execute("INSERT OR IGNORE INTO emojis VALUES (?, ?, 0)", (k, v))
 conn.commit()
 
 # ===== UTILS =====
@@ -62,107 +76,98 @@ def cooldown(last, cd):
     return False, cd - (now - last)
 
 def fmt(sec):
-    h = sec // 3600
-    m = (sec % 3600) // 60
-    return f"{h}ч {m}м"
+    return f"{sec//3600}ч {(sec%3600)//60}м"
 
 def tree_fmt(cm):
-    if cm < 100:
-        return f"{cm} см"
-    return f"{cm//100} м {cm%100} см"
+    return f"{cm//100} м {cm%100} см" if cm>=100 else f"{cm} см"
 
-def rand(a, b): return random.randint(a, b)
-def rand_res(): return random.choice(["bank", "bone"])
+def rand(a,b): return random.randint(a,b)
+def rand_res(): return random.choice(["bank","bone"])
 
-def add_msg(chat_id):
-    cursor.execute("INSERT OR IGNORE INTO chat_stats VALUES (?,0)", (chat_id,))
-    cursor.execute("UPDATE chat_stats SET messages = messages+1 WHERE chat_id=?", (chat_id,))
-    conn.commit()
+# ===== ЭМОДЗИ СИСТЕМА =====
+def get_emoji(name):
+    cursor.execute("SELECT value, is_custom FROM emojis WHERE name=?", (name,))
+    return cursor.fetchone()
 
-def get_msgs(chat_id):
-    cursor.execute("INSERT OR IGNORE INTO chat_stats VALUES (?,0)", (chat_id,))
-    cursor.execute("SELECT messages FROM chat_stats WHERE chat_id=?", (chat_id,))
-    return cursor.fetchone()[0]
+def build_text(text):
+    entities = []
+    for key in default_emojis.keys():
+        data = get_emoji(key)
+        if not data: continue
+
+        val, is_custom = data
+        tag = "{" + key + "}"
+
+        if tag in text:
+            pos = text.find(tag)
+            if is_custom:
+                text = text.replace(tag, "▫️", 1)
+                entities.append(MessageEntity(
+                    type="custom_emoji",
+                    offset=pos,
+                    length=1,
+                    custom_emoji_id=val
+                ))
+            else:
+                text = text.replace(tag, val, 1)
+
+    return text, entities
+
+def send(chat_id, text, kb=None, edit=None):
+    text, entities = build_text(text)
+
+    if edit:
+        bot.edit_message_text(text, chat_id, edit, reply_markup=kb, entities=entities)
+    else:
+        bot.send_message(chat_id, text, reply_markup=kb, entities=entities)
 
 # ===== КНОПКИ =====
 def menu():
     kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("👤 Профиль", callback_data="profile"),
-           InlineKeyboardButton("🎒 Инвентарь", callback_data="inv"))
-    kb.add(InlineKeyboardButton("🛒 Магазин", callback_data="shop"),
-           InlineKeyboardButton("🎁 Бонус", callback_data="bonus"))
-    kb.add(InlineKeyboardButton("🏆 Топ", callback_data="top"))
+    kb.add(InlineKeyboardButton("Профиль",callback_data="profile"),
+           InlineKeyboardButton("Инвентарь",callback_data="inv"))
+    kb.add(InlineKeyboardButton("Бонус",callback_data="bonus"),
+           InlineKeyboardButton("Топ",callback_data="top"))
     return kb
 
 def profile_kb():
     kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("🎒 Инвентарь", callback_data="inv"))
-    kb.add(InlineKeyboardButton("🌳 Дерево", callback_data="tree"))
-    kb.add(InlineKeyboardButton("⛏ Копать", callback_data="dig"))
-    kb.add(InlineKeyboardButton("🍆 Подрочить", callback_data="fap"))
-    kb.add(InlineKeyboardButton("⬅️ Назад", callback_data="menu"))
-    return kb
-
-def inv_kb():
-    kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("⬅️ Назад", callback_data="profile"))
+    kb.add(InlineKeyboardButton("Инвентарь",callback_data="inv"))
+    kb.add(InlineKeyboardButton("Дерево",callback_data="tree"))
+    kb.add(InlineKeyboardButton("Копать",callback_data="dig"))
+    kb.add(InlineKeyboardButton("Фап",callback_data="fap"))
+    kb.add(InlineKeyboardButton("Назад",callback_data="menu"))
     return kb
 
 def tree_kb():
     kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("💧 Полить", callback_data="water"),
-           InlineKeyboardButton("🌿 Удобрить", callback_data="fert"))
-    kb.add(InlineKeyboardButton("⬅️ Назад", callback_data="profile"))
+    kb.add(InlineKeyboardButton("Полить",callback_data="water"),
+           InlineKeyboardButton("Удобрить",callback_data="fert"))
+    kb.add(InlineKeyboardButton("Назад",callback_data="profile"))
     return kb
 
 def fap_kb():
     kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("🧴 Использовать", callback_data="fap_use"))
-    kb.add(InlineKeyboardButton("⬅️ Назад", callback_data="profile"))
+    kb.add(InlineKeyboardButton("Использовать",callback_data="fap_use"))
+    kb.add(InlineKeyboardButton("Назад",callback_data="profile"))
     return kb
-
-def top_kb():
-    kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("💰 Монеты", callback_data="tm"),
-           InlineKeyboardButton("🌱 Дерево", callback_data="tt"))
-    kb.add(InlineKeyboardButton("🍆 Дрочеры", callback_data="tf"))
-    kb.add(InlineKeyboardButton("⬅️ Назад", callback_data="menu"))
-    return kb
-
-def edit(call, text, kb=None):
-    bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=kb)
 
 # ===== START =====
 @bot.message_handler(commands=['start'])
 def start(m):
     get_user(m.from_user.id, m.from_user.first_name)
-    bot.send_message(m.chat.id, "👋 Привет!", reply_markup=menu())
+    send(m.chat.id, "👋 Привет", menu())
 
-# ===== TEXT COMMANDS =====
-@bot.message_handler(func=lambda m: True)
-def all(m):
-    u = get_user(m.from_user.id, m.from_user.first_name)
-    add_msg(m.chat.id)
+# ===== АДМИН =====
+waiting = {}
 
-    text = m.text.lower()
-    uid = u[0]
-
-    if text == "профиль":
-        bot.send_message(m.chat.id, "👤 Открываю профиль", reply_markup=menu())
-
-    elif text == "копать":
-        ok, left = cooldown(u[7], 1800)
-        if not ok: return bot.send_message(m.chat.id, fmt(left))
-
-        coins = rand(12, 99)
-        res = rand_res()
-        amt = rand(1, 3)
-
-        add("balance", coins, uid)
-        add(res, amt, uid)
-        update("last_dig", int(time.time()), uid)
-
-        bot.send_message(m.chat.id, f"+{coins} 💰")
+@bot.message_handler(commands=['admin'])
+def admin(m):
+    if m.from_user.id not in ADMINS: return
+    kb = InlineKeyboardMarkup()
+    for k in default_emojis:
+        kb.add(InlineKeyboardButton(k, callback_data=f"edit_{k}"))
+    bot.send_message(m.chat.id, "🎨 Эмодзи", reply_markup=kb)
 
 # ===== CALLBACK =====
 @bot.callback_query_handler(func=lambda c: True)
@@ -170,128 +175,104 @@ def cb(call):
     u = get_user(call.from_user.id, call.from_user.first_name)
     uid = u[0]
 
-    if call.data == "menu":
-        edit(call, "Меню", menu())
+    if call.data=="menu":
+        send(call.message.chat.id, "Меню", menu(), call.message.message_id)
 
-    elif call.data == "profile":
-        edit(call, f"""
-👤 Профиль
+    elif call.data=="profile":
+        send(call.message.chat.id, """
+{profile} Профиль
 
-🆔 {uid}
-📛 {u[1]}
-💰 {u[2]}
+{money} %s
+{tree} %s
+{fap} %s
+"""%(u[2],tree_fmt(u[5]),u[6]), profile_kb(), call.message.message_id)
 
-🌳 {tree_fmt(u[5])}
-🍆 {u[6]}
-""", profile_kb())
+    elif call.data=="tree":
+        send(call.message.chat.id, """
+{tree} Дерево
 
-    elif call.data == "inv":
-        edit(call, f"""
-🎒 Инвентарь
+Рост: %s
+"""%tree_fmt(u[5]), tree_kb(), call.message.message_id)
 
-🧴 {u[3]}
-🦴 {u[4]}
-""", inv_kb())
-
-    elif call.data == "tree":
-        edit(call, f"""
-🌳 Дерево
-
-📏 Рост: {tree_fmt(u[5])}
-""", tree_kb())
-
-    elif call.data == "water":
-        ok, left = cooldown(u[8], 14400)
-        if not ok: return edit(call, fmt(left), tree_kb())
-
-        grow = rand(1, 10)
-        add("tree", grow, uid)
-        update("last_water", int(time.time()), uid)
-
-        edit(call, f"🌱 +{grow} см", tree_kb())
-
-    elif call.data == "fert":
-        if u[4] <= 0:
-            return edit(call, "❌ Нет костей", tree_kb())
-
-        add("bone", -1, uid)
-        add("tree", 15, uid)
-
-        edit(call, "🌿 +15 см", tree_kb())
-
-    elif call.data == "dig":
-        ok, left = cooldown(u[7], 1800)
+    elif call.data=="dig":
+        ok,left=cooldown(u[7],1800)
         if not ok:
-            return edit(call, f"⏳ {fmt(left)}", profile_kb())
+            return send(call.message.chat.id,f"⏳ {fmt(left)}",profile_kb(),call.message.message_id)
 
-        coins = rand(12, 99)
-        res = rand_res()
-        amt = rand(1, 3)
+        coins=rand(12,99)
+        res=rand_res()
+        amt=rand(1,3)
 
-        add("balance", coins, uid)
-        add(res, amt, uid)
-        update("last_dig", int(time.time()), uid)
+        add("balance",coins,uid)
+        add(res,amt,uid)
+        update("last_dig",int(time.time()),uid)
 
-        emoji = "🧴" if res == "bank" else "🦴"
+        send(call.message.chat.id,f"{coins} монет",profile_kb(),call.message.message_id)
 
-        edit(call, f"""
-⛏ Добыча
+    elif call.data=="fap":
+        send(call.message.chat.id,f"""
+{fap} Фап
 
-💰 +{coins}
-{emoji} +{amt}
-""", profile_kb())
+Всего: {u[6]}
+Банки: {u[3]}
+""",fap_kb(),call.message.message_id)
 
-    elif call.data == "fap":
-        edit(call, f"""
-🍆 Фап
+    elif call.data=="fap_use":
+        if u[3]<=0:
+            return send(call.message.chat.id,"❌ Нет банок",fap_kb(),call.message.message_id)
 
-📊 Всего: {u[6]}
-🧴 В наличии: {u[3]}
-""", fap_kb())
+        add("bank",-1,uid)
+        add("fap",1,uid)
 
-    elif call.data == "fap_use":
-        if u[3] <= 0:
-            return edit(call, "❌ Вы не можете подрочить, у вас Нет банок", fap_kb())
+        send(call.message.chat.id,f"✅ +1\nВсего: {u[6]+1}",fap_kb(),call.message.message_id)
 
-        add("bank", -1, uid)
-        add("fap", 1, uid)
-
-        edit(call, f"""
-✅ Вы успешно подрочили
-
-📊 Всего: {u[6]+1}
-🧴 Осталось: {u[3]-1}
-""", fap_kb())
-
-    elif call.data == "bonus":
-        ok, left = cooldown(u[9], 86400)
+    elif call.data=="water":
+        ok,left=cooldown(u[8],14400)
         if not ok:
-            return edit(call, f"⏳ {fmt(left)}", menu())
+            return send(call.message.chat.id,fmt(left),tree_kb(),call.message.message_id)
 
-        add("balance", 500, uid)
-        update("last_bonus", int(time.time()), uid)
+        grow=rand(1,10)
+        add("tree",grow,uid)
+        update("last_water",int(time.time()),uid)
 
-        edit(call, "🎁 +500", menu())
+        send(call.message.chat.id,f"+{grow} см",tree_kb(),call.message.message_id)
 
-    elif call.data == "top":
-        edit(call, f"💬 {get_msgs(call.message.chat.id)}", top_kb())
+    elif call.data=="fert":
+        if u[4]<=0:
+            return send(call.message.chat.id,"Нет костей",tree_kb(),call.message.message_id)
 
-    elif call.data in ["tm","tt","tf"]:
-        cursor.execute("SELECT * FROM users")
-        data = cursor.fetchall()
+        add("bone",-1,uid)
+        add("tree",15,uid)
 
-        key = {"tm":2,"tt":5,"tf":6}[call.data]
-        data.sort(key=lambda x: x[key], reverse=True)
+        send(call.message.chat.id,"+15 см",tree_kb(),call.message.message_id)
 
-        text = ""
-        pos = 0
+    # ===== ЭМОДЗИ РЕДАКТОР =====
+    elif call.data.startswith("edit_"):
+        if call.from_user.id not in ADMINS: return
+        key=call.data.split("_")[1]
+        waiting[call.from_user.id]=key
+        bot.send_message(call.message.chat.id,f"Отправь эмодзи для {key}")
 
-        for i,u2 in enumerate(data,1):
-            text += f"{i}. {u2[1]} — {u2[key]}\n"
-            if u2[0]==uid: pos=i
+# ===== ПРИЕМ ЭМОДЗИ =====
+@bot.message_handler(func=lambda m: True)
+def set_emoji(m):
+    if m.from_user.id not in waiting:
+        return
 
-        text += f"\n📍 Ты: {pos}"
-        edit(call, text, top_kb())
+    key=waiting[m.from_user.id]
+
+    if m.entities:
+        for e in m.entities:
+            if e.type=="custom_emoji":
+                cursor.execute("UPDATE emojis SET value=?,is_custom=1 WHERE name=?",(e.custom_emoji_id,key))
+                conn.commit()
+                del waiting[m.from_user.id]
+                return bot.send_message(m.chat.id,"✅ Premium обновлен")
+
+    cursor.execute("UPDATE emojis SET value=?,is_custom=0 WHERE name=?",(m.text,key))
+    conn.commit()
+    del waiting[m.from_user.id]
+    bot.send_message(m.chat.id,"✅ Обновлено")
 
 print("Запущен")
 bot.infinity_polling()
