@@ -3,8 +3,9 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import sqlite3
 import time
 import random
+import os
 
-TOKEN = "8640949306:AAG5n2Af4LHtj8qe5pT1eLZb4oY1pe_NT3c"
+TOKEN = os.getenv("TOKEN") or "8640949306:AAG5n2Af4LHtj8qe5pT1eLZb4oY1pe_NT3c"
 bot = telebot.TeleBot(TOKEN)
 
 # ===== БД =====
@@ -71,7 +72,6 @@ def tree_fmt(cm):
     return f"{cm//100} м {cm%100} см"
 
 def rand(a, b): return random.randint(a, b)
-
 def rand_res(): return random.choice(["bank", "bone"])
 
 def add_msg(chat_id):
@@ -97,14 +97,27 @@ def menu():
 def profile_kb():
     kb = InlineKeyboardMarkup()
     kb.add(InlineKeyboardButton("🎒 Инвентарь", callback_data="inv"))
-    kb.add(InlineKeyboardButton("💧 Полить", callback_data="water"),
-           InlineKeyboardButton("🌿 Удобрить", callback_data="fert"))
+    kb.add(InlineKeyboardButton("🌳 Дерево", callback_data="tree"))
+    kb.add(InlineKeyboardButton("⛏ Копать", callback_data="dig"))
     kb.add(InlineKeyboardButton("🍆 Пофапать", callback_data="fap"))
     kb.add(InlineKeyboardButton("⬅️ Назад", callback_data="menu"))
     return kb
 
 def inv_kb():
     kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("⬅️ Назад", callback_data="profile"))
+    return kb
+
+def tree_kb():
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("💧 Полить", callback_data="water"),
+           InlineKeyboardButton("🌿 Удобрить", callback_data="fert"))
+    kb.add(InlineKeyboardButton("⬅️ Назад", callback_data="profile"))
+    return kb
+
+def fap_kb():
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("🧴 Использовать", callback_data="fap_use"))
     kb.add(InlineKeyboardButton("⬅️ Назад", callback_data="profile"))
     return kb
 
@@ -119,13 +132,13 @@ def top_kb():
 def edit(call, text, kb=None):
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=kb)
 
-# ===== СТАРТ =====
+# ===== START =====
 @bot.message_handler(commands=['start'])
 def start(m):
     get_user(m.from_user.id, m.from_user.first_name)
     bot.send_message(m.chat.id, "👋 Привет!", reply_markup=menu())
 
-# ===== ВСЕ КОМАНДЫ =====
+# ===== TEXT COMMANDS =====
 @bot.message_handler(func=lambda m: True)
 def all(m):
     u = get_user(m.from_user.id, m.from_user.first_name)
@@ -136,9 +149,6 @@ def all(m):
 
     if text == "профиль":
         bot.send_message(m.chat.id, "👤 Открываю профиль", reply_markup=menu())
-
-    elif text == "инвентарь":
-        bot.send_message(m.chat.id, "🎒 Открываю инвентарь", reply_markup=menu())
 
     elif text == "копать":
         ok, left = cooldown(u[7], 1800)
@@ -152,44 +162,7 @@ def all(m):
         add(res, amt, uid)
         update("last_dig", int(time.time()), uid)
 
-        bot.send_message(m.chat.id, f"+{coins} 💰\n+{amt} {'🧴' if res=='bank' else '🦴'}")
-
-    elif text == "полить":
-        ok, left = cooldown(u[8], 14400)
-        if not ok: return bot.send_message(m.chat.id, fmt(left))
-
-        grow = rand(1, 10)
-        add("tree", grow, uid)
-        update("last_water", int(time.time()), uid)
-
-        bot.send_message(m.chat.id, f"+{grow} см")
-
-    elif text == "удобрить":
-        if u[4] <= 0: return bot.send_message(m.chat.id, "Нет костей")
-        add("bone", -1, uid)
-        add("tree", 15, uid)
-        bot.send_message(m.chat.id, "+15 см")
-
-    elif text == "пофапать":
-        if u[3] <= 0: return bot.send_message(m.chat.id, "Нет банок")
-        add("bank", -1, uid)
-        add("fap", 1, uid)
-        bot.send_message(m.chat.id, "+1")
-
-    elif text == "бонус":
-        ok, left = cooldown(u[9], 86400)
-        if not ok: return bot.send_message(m.chat.id, fmt(left))
-        add("balance", 500, uid)
-        update("last_bonus", int(time.time()), uid)
-        bot.send_message(m.chat.id, "+500")
-
-    elif text == "кд":
-        bot.send_message(m.chat.id,
-            f"⛏ {fmt(cooldown(u[7],1800)[1])}\n🌱 {fmt(cooldown(u[8],14400)[1])}\n🎁 {fmt(cooldown(u[9],86400)[1])}")
-
-    elif text.startswith("топ"):
-        if text == "топ":
-            return bot.send_message(m.chat.id, f"💬 {get_msgs(m.chat.id)}", reply_markup=top_kb())
+        bot.send_message(m.chat.id, f"+{coins} 💰")
 
 # ===== CALLBACK =====
 @bot.callback_query_handler(func=lambda c: True)
@@ -220,35 +193,85 @@ def cb(call):
 🦴 {u[4]}
 """, inv_kb())
 
-    elif call.data == "shop":
-        edit(call, "🛒 В разработке", menu())
+    elif call.data == "tree":
+        edit(call, f"""
+🌳 Дерево
 
-    elif call.data == "bonus":
-        ok, left = cooldown(u[9], 86400)
-        if not ok: return edit(call, fmt(left), menu())
-        add("balance", 500, uid)
-        update("last_bonus", int(time.time()), uid)
-        edit(call, "+500 💰", menu())
+📏 Рост: {tree_fmt(u[5])}
+""", tree_kb())
 
     elif call.data == "water":
         ok, left = cooldown(u[8], 14400)
-        if not ok: return edit(call, fmt(left), profile_kb())
+        if not ok: return edit(call, fmt(left), tree_kb())
+
         grow = rand(1, 10)
         add("tree", grow, uid)
         update("last_water", int(time.time()), uid)
-        edit(call, f"+{grow} см", profile_kb())
+
+        edit(call, f"🌱 +{grow} см", tree_kb())
 
     elif call.data == "fert":
-        if u[4] <= 0: return edit(call, "Нет костей", profile_kb())
+        if u[4] <= 0:
+            return edit(call, "❌ Нет костей", tree_kb())
+
         add("bone", -1, uid)
         add("tree", 15, uid)
-        edit(call, "+15 см", profile_kb())
+
+        edit(call, "🌿 +15 см", tree_kb())
+
+    elif call.data == "dig":
+        ok, left = cooldown(u[7], 1800)
+        if not ok:
+            return edit(call, f"⏳ {fmt(left)}", profile_kb())
+
+        coins = rand(12, 99)
+        res = rand_res()
+        amt = rand(1, 3)
+
+        add("balance", coins, uid)
+        add(res, amt, uid)
+        update("last_dig", int(time.time()), uid)
+
+        emoji = "🧴" if res == "bank" else "🦴"
+
+        edit(call, f"""
+⛏ Добыча
+
+💰 +{coins}
+{emoji} +{amt}
+""", profile_kb())
 
     elif call.data == "fap":
-        if u[3] <= 0: return edit(call, "Нет банок", profile_kb())
+        edit(call, f"""
+🍆 Фап
+
+📊 Всего: {u[6]}
+🧴 В наличии: {u[3]}
+""", fap_kb())
+
+    elif call.data == "fap_use":
+        if u[3] <= 0:
+            return edit(call, "❌ Нет банок", fap_kb())
+
         add("bank", -1, uid)
         add("fap", 1, uid)
-        edit(call, f"{u[6]+1}", profile_kb())
+
+        edit(call, f"""
+✅ Вы успешно пофапали
+
+📊 Всего: {u[6]+1}
+🧴 Осталось: {u[3]-1}
+""", fap_kb())
+
+    elif call.data == "bonus":
+        ok, left = cooldown(u[9], 86400)
+        if not ok:
+            return edit(call, f"⏳ {fmt(left)}", menu())
+
+        add("balance", 500, uid)
+        update("last_bonus", int(time.time()), uid)
+
+        edit(call, "🎁 +500", menu())
 
     elif call.data == "top":
         edit(call, f"💬 {get_msgs(call.message.chat.id)}", top_kb())
